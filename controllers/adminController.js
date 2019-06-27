@@ -3,19 +3,25 @@ const path = require('path');
 const db = require('../models/db')();
 const fs = require('fs');
 
-exports.get = (req, res) => {
-  let data = {
-    msgfile: req.flash('msgfile')[0],
-    msgskill: req.flash('msgskill')[0]
-  };
-  res.status(200).render('admin', data);
-}
-exports.skills = (req, res) => {
-  if (!req.body.age || !req.body.concerts || !req.body.cities || !req.body.years) {
-    req.flash('msgskill', "Не все поля заполнены!");
-    return res.redirect('/admin');
+exports.get = async (ctx) => {
+  try {
+    let data = {
+      msgfile: ctx.flash.get() ? ctx.flash.get().msgfile : null,
+      msgskill: ctx.flash.get() ? ctx.flash.get().msgskill : null
+    };
+    ctx.status = 200;
+    ctx.render('admin', data);
+  } catch (error) {
+    console.error(error);
+    ctx.status = 404;
   }
-  let numberSkills = req.body;
+}
+exports.skills = async (ctx) => {
+  if (!ctx.request.body.age || !ctx.request.body.concerts || !ctx.request.body.cities || !ctx.request.body.years) {
+    ctx.flash.set({ msgskill: "Не все поля заполнены!" });
+    return ctx.redirect('/admin');
+  }
+  let numberSkills = ctx.request.body;
   let textSkills = {
     age: "Возраст начала занятий на скрипке",
     concerts: "Концертов отыграл",
@@ -23,7 +29,7 @@ exports.skills = (req, res) => {
     years: "Лет на сцене в качестве скрипача"
   };
   let skills = [];
-  Object.keys(numberSkills).forEach(function(key, index) {
+  Object.keys(numberSkills).forEach(function (key, index) {
     skills[index] = {
       number: numberSkills[key],
       text: textSkills[key]
@@ -31,57 +37,58 @@ exports.skills = (req, res) => {
   })
   db.set('skills', skills);
   db.save();
-  req.flash('msgskill', "Скиллы успешно обновлены!");
-  res.redirect('/admin')
+  ctx.flash.set({ msgskill: "Скиллы успешно обновлены!" });
+  ctx.redirect('/admin')
 }
-exports.upload = (req, res) => {
-  let files = {
-    photo: {}
-  };
-  if (req.files.length !== 0) {
-    let photo = req.files.map(function(item) {
-      return item;
-    })[0]
-    files.photo = photo;
-  } else {
-    files.photo.originalname = '',
-    files.photo.size = 0
-  }
-  let fields = {
-    name: req.body.name,
-    price: req.body.price
-  }
-  let valid = validation(fields, files);
-  if (valid.err) {
-    if (files.photo.path) {
-      fs.unlinkSync(files.photo.path);
+exports.upload = async (ctx, next) => {
+  try {
+    let fields = {
+      name: ctx.request.body.name,
+      price: ctx.request.body.price
     }
-    req.flash('msgfile', valid.status);
-    return res.redirect('/admin')
-  }
-  const fileName = path.join('./public', 'upload', files.photo.originalname);
-  if (files.photo.path) {
-    fs.rename(files.photo.path, fileName, function(err) {
-
-      if (err) {
-        return console.error(err.message);
+    let files = ctx.request.files;
+    let valid = validation(fields, files);
+    console.log('valid=', valid)
+    if (valid.err) {
+      if (files.photo.path) {
+        fs.unlinkSync(files.photo.path);
       }
-      console.log('Rename completed!');
+      ctx.flash.set({ msgfile: valid.status });
+      return ctx.redirect('/admin')
+    }
+    let rename = function(oldPath, newPath) {
+      return new Promise(function(resolve, reject) {
+        fs.rename(oldPath, newPath, function (err) {
+          if (err) {
+            return console.error(err.message);
+          }
+          console.log('Rename completed!');
+  
+          let dir = fileName.substr(fileName.indexOf('\\'));
+  
+          let products = db.get('products') || [];
+  
+          products.push({
+            name: fields.name,
+            price: fields.price,
+            file: dir
+          })
 
-      let dir = fileName.substr(fileName.indexOf('\\'));
+          db.set('products', products);
+          db.save();
 
-      let products = db.get('products') || [];
-
-      products.push({
-        name: fields.name,
-        price: fields.price,
-        file: dir
+          resolve()
+        })
       })
-
-      db.set('products', products);
-      db.save();
-      req.flash('msgfile', "Товар успешно добавлен!");
-      res.redirect('/admin')
-    })
+    }
+    const fileName = path.join('./public', 'upload', files.photo.name);
+    if (files.photo.path) {
+      await rename(files.photo.path, fileName);
+      ctx.flash.set({ msgfile: "Товар успешно добавлен!" });
+      ctx.redirect('/admin');
+    }
+  } catch (error) {
+    console.error(error);
+    ctx.status = 404;
   }
 }

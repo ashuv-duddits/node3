@@ -1,5 +1,5 @@
-const express = require('express');
-const router = express.Router();
+const Router = require('koa-router');
+const router = new Router();
 
 const homeController = require('../controllers/homeController');
 const authController = require('../controllers/authController');
@@ -10,11 +10,11 @@ router.get('/login', authController.get);
 router.post('/login', authController.post);
 router.post('/', homeController.post);
 
-const isAdmin = (req, res, next) => {
-  if (req.session.isAdmin) {
+const isAdmin = (ctx, next) => {
+  if (ctx.session.isAdmin) {
     return next();
   }
-  res.redirect('/login');
+  ctx.redirect('/login');
 }
 
 router.get('/admin', isAdmin, adminController.get);
